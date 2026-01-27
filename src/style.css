@@ -1,0 +1,32 @@
+* {
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  overflow: hidden;
+}
+body {
+  font-family: systeme-ui, sans-serif;
+}
+
+.webgl {
+  position: fixed;
+  top: 0;
+  left: 0;
+  outline: none;
+}
+
+#score {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  color: white;
+}
+#curent-position {
+  position: fixed;
+  top: 60px;
+  left: 20px;
+  color: white;
+}
