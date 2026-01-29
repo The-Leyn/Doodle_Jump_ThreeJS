@@ -30,7 +30,7 @@ const gltfLoader = new GLTFLoader();
 // Variable pour stocker le modèle du joueur
 let playerMesh = null;
 
-gltfLoader.load("/models/doodle_jump/scene.gltf", (gltf) => {
+gltfLoader.load("./models/doodle_jump/scene.gltf", (gltf) => {
   playerMesh = gltf.scene;
   playerMesh.rotation.y = Math.PI; // Rotation 180°
   playerMesh.scale.set(0.4, 0.4, 0.4);
