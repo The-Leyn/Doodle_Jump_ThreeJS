@@ -27,12 +27,11 @@ scene.background = new THREE.Color("#87ceeb");
  */
 const gltfLoader = new GLTFLoader();
 
-// Variable pour stocker le modèle du joueur
 let playerMesh = null;
 
 gltfLoader.load("./models/doodle_jump/scene.gltf", (gltf) => {
   playerMesh = gltf.scene;
-  playerMesh.rotation.y = Math.PI; // Rotation 180°
+  playerMesh.rotation.y = Math.PI;
   playerMesh.scale.set(0.4, 0.4, 0.4);
 
   playerMesh.traverse((child) => {
@@ -61,7 +60,6 @@ const floorBody = world.createRigidBody(
   RAPIER.RigidBodyDesc.fixed().setTranslation(0, 0, 0),
 );
 
-// Sol de 15x15 (donc 7.5 de demi-largeur)
 world.createCollider(RAPIER.ColliderDesc.cuboid(7.5, 0.1, 7.5), floorBody);
 
 /**
@@ -132,7 +130,7 @@ scene.add(floor);
 
 /**
  * ======================
- * INPUT
+ * INPUT (Clavier)
  * ======================
  */
 const keyboard = {
@@ -158,6 +156,121 @@ window.addEventListener("keyup", (e) => {
   if (e.code === "KeyD" || e.code === "ArrowRight") keyboard.right = false;
   if (e.code === "Space") keyboard.jump = false;
 });
+
+/**
+ * ======================
+ * MOBILE CONTROLS (Tactile)
+ * ======================
+ */
+const setupMobileControls = () => {
+  const jumpBtn = document.getElementById("jump-btn");
+  const joystickZone = document.getElementById("joystick-zone");
+  const joystickKnob = document.getElementById("joystick-knob");
+
+  // Sécurité si les éléments ne sont pas encore dans le DOM
+  if (!jumpBtn || !joystickZone) return;
+
+  // 1. Bouton de saut
+  jumpBtn.addEventListener(
+    "touchstart",
+    (e) => {
+      e.preventDefault(); // Empêche le zoom/scroll
+      keyboard.jump = true;
+    },
+    { passive: false },
+  );
+
+  jumpBtn.addEventListener(
+    "touchend",
+    (e) => {
+      e.preventDefault();
+      keyboard.jump = false;
+    },
+    { passive: false },
+  );
+
+  // 2. Joystick Virtuel
+  let startX = 0;
+  let startY = 0;
+
+  // Au toucher
+  joystickZone.addEventListener(
+    "touchstart",
+    (e) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      const rect = joystickZone.getBoundingClientRect();
+      // Centre du joystick
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+
+      startX = centerX;
+      startY = centerY;
+
+      updateJoystick(touch.clientX, touch.clientY);
+    },
+    { passive: false },
+  );
+
+  // Déplacement du doigt
+  joystickZone.addEventListener(
+    "touchmove",
+    (e) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      updateJoystick(touch.clientX, touch.clientY);
+    },
+    { passive: false },
+  );
+
+  // Relâchement
+  joystickZone.addEventListener(
+    "touchend",
+    (e) => {
+      e.preventDefault();
+      resetJoystick();
+    },
+    { passive: false },
+  );
+
+  function updateJoystick(clientX, clientY) {
+    // Calcul du vecteur depuis le centre
+    let deltaX = clientX - startX;
+    let deltaY = clientY - startY;
+
+    // Limiter le mouvement du knob au rayon du cercle (max 35px)
+    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+    const maxDist = 35;
+
+    if (distance > maxDist) {
+      const angle = Math.atan2(deltaY, deltaX);
+      deltaX = Math.cos(angle) * maxDist;
+      deltaY = Math.sin(angle) * maxDist;
+    }
+
+    // Bouger visuellement le bouton
+    joystickKnob.style.transform = `translate(calc(-50% + ${deltaX}px), calc(-50% + ${deltaY}px))`;
+
+    // Traduire en Input Clavier (Seuils de déclenchement)
+    const threshold = 10;
+
+    keyboard.right = deltaX > threshold;
+    keyboard.left = deltaX < -threshold;
+    keyboard.down = deltaY > threshold;
+    keyboard.up = deltaY < -threshold;
+  }
+
+  function resetJoystick() {
+    joystickKnob.style.transform = `translate(-50%, -50%)`;
+    keyboard.up = false;
+    keyboard.down = false;
+    keyboard.left = false;
+    keyboard.right = false;
+  }
+};
+
+// On lance la configuration (assurez-vous d'avoir ajouté le HTML avant !)
+setupMobileControls();
 
 /**
  * ======================
@@ -350,14 +463,11 @@ const tick = () => {
 
   world.step();
 
-  // ============================================
   // --- 5. LOGIQUE DE "WRAPPING" (BORDS) ---
-  // ============================================
-  const mapLimit = 7.5; // Limite du monde (moitié du sol de 15)
+  const mapLimit = 7.5;
   let currentTeleportPos = playerBody.translation();
   let teleportNeeded = false;
 
-  // Gestion Axe X (Gauche / Droite)
   if (currentTeleportPos.x > mapLimit) {
     currentTeleportPos.x = -mapLimit;
     teleportNeeded = true;
@@ -366,7 +476,6 @@ const tick = () => {
     teleportNeeded = true;
   }
 
-  // Gestion Axe Z (Nord / Sud)
   if (currentTeleportPos.z > mapLimit) {
     currentTeleportPos.z = -mapLimit;
     teleportNeeded = true;
@@ -375,14 +484,11 @@ const tick = () => {
     teleportNeeded = true;
   }
 
-  // Si on a dépassé un bord, on téléporte
   if (teleportNeeded) {
     playerBody.setTranslation(currentTeleportPos, true);
   }
 
-  // ============================================
-
-  // --- 6. SYNCHRONISATION MODÈLE ET ORIENTATION ---
+  // --- 6. SYNCHRONISATION MODÈLE ---
   const pos = playerBody.translation();
 
   if (playerMesh) {
@@ -393,7 +499,6 @@ const tick = () => {
     const camAngle = Math.atan2(camDirection.x, camDirection.z);
     playerMesh.rotation.y = camAngle + -Math.PI * 0.5;
 
-    // Lumière
     directionalLight.position.x = pos.x + 5;
     directionalLight.position.z = pos.z + 5;
     directionalLight.position.y = pos.y + 10;
