@@ -16,7 +16,8 @@ await RAPIER.init();
  * Base
  */
 const gui = new GUI();
-// gui.close(); // On ferme le GUI sur mobile pour gagner un peu de perf UI
+gui.close(); // On ferme le GUI sur mobile pour gagner un peu de perf UI
+gui.hide();
 const canvas = document.querySelector("canvas.webgl");
 const scene = new THREE.Scene();
 scene.background = new THREE.Color("#87ceeb");
