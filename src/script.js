@@ -16,9 +16,44 @@ await RAPIER.init();
  * Base
  */
 const gui = new GUI();
+// gui.close(); // On ferme le GUI sur mobile pour gagner un peu de perf UI
 const canvas = document.querySelector("canvas.webgl");
 const scene = new THREE.Scene();
 scene.background = new THREE.Color("#87ceeb");
+
+// Ajout de brouillard pour masquer le "pop" des plateformes au loin et optimiser le rendu lointain
+scene.fog = new THREE.Fog("#87ceeb", 10, 40);
+
+/**
+ * ======================
+ * DÉTECTION MOBILE
+ * ======================
+ */
+const isMobile =
+  /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+    navigator.userAgent,
+  );
+
+console.log("Mode Mobile détecté : " + isMobile);
+
+// On définit une configuration graphique en fonction du résultat
+const graphicsConfig = {
+  // Mobile : Pas d'antialiasing (gros gain perf), PC : Oui
+  antialias: !isMobile,
+
+  // Mobile : On limite la densité de pixels à 1.5 ou 2 max pour éviter la surchauffe
+  // PC : On autorise jusqu'à 2
+  pixelRatio: isMobile
+    ? Math.min(window.devicePixelRatio, 1.5)
+    : Math.min(window.devicePixelRatio, 2),
+
+  // Mobile : Ombres plus petites (1024), PC : Ombres HD (2048)
+  shadowMapSize: isMobile ? 1024 : 2048,
+
+  // Mobile : Ombres simplifiées (Basic) ou PCFSoft selon la puissance voulue.
+  // Ici on garde PCFSoft pour que ce soit joli, mais avec une petite mapSize.
+  shadowType: THREE.PCFSoftShadowMap,
+};
 
 /**
  * ======================
@@ -53,8 +88,6 @@ const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
  * ======================
  * OPTIMISATION : GÉOMÉTRIE & MATÉRIEL PARTAGÉS
  * ======================
- * On crée la forme et la couleur UNE SEULE FOIS ici.
- * On les réutilisera pour toutes les plateformes.
  */
 const platformGeometry = new THREE.BoxGeometry(2, 0.3, 2);
 const platformMaterial = new THREE.MeshStandardMaterial({ color: "#4caf50" });
@@ -84,15 +117,17 @@ const createPlatform = (y) => {
   const x = (Math.random() - 0.5) * 10;
   const z = (Math.random() - 0.5) * 10;
 
-  // 1. Mesh : On utilise la géométrie partagée ! (Énorme gain de perf)
   const mesh = new THREE.Mesh(platformGeometry, platformMaterial);
-
   mesh.position.set(x, y, z);
-  mesh.castShadow = true;
+
+  // OPTIMISATION MASSIVE :
+  // Les plateformes NE PROJETTENT PLUS d'ombre, elles ne font que les recevoir.
+  // Cela divise par 2 le travail de la lumière.
+  mesh.castShadow = false;
   mesh.receiveShadow = true;
+
   scene.add(mesh);
 
-  // 2. Physics
   const body = world.createRigidBody(
     RAPIER.RigidBodyDesc.fixed().setTranslation(x, y, z),
   );
@@ -133,7 +168,6 @@ const keyboard = {
   jump: false,
 };
 
-// ... (Gardez vos EventListeners Clavier ici) ...
 window.addEventListener("keydown", (e) => {
   if (e.code === "KeyW" || e.code === "ArrowUp") keyboard.up = true;
   if (e.code === "KeyS" || e.code === "ArrowDown") keyboard.down = true;
@@ -149,7 +183,6 @@ window.addEventListener("keyup", (e) => {
   if (e.code === "Space") keyboard.jump = false;
 });
 
-// ... (Gardez votre setupMobileControls ici) ...
 const setupMobileControls = () => {
   const jumpBtn = document.getElementById("jump-btn");
   const joystickZone = document.getElementById("joystick-zone");
@@ -234,23 +267,23 @@ setupMobileControls();
 
 /**
  * ======================
- * LIGHTS (OPTIMISÉ)
+ * LIGHTS (DYNAMIQUE)
  * ======================
  */
 scene.add(new THREE.AmbientLight("#ffffff", 1.5));
 const directionalLight = new THREE.DirectionalLight("#ffffff", 3);
 
-// OPTIMISATION : Taille de la texture d'ombre réduite pour mobile
-// 1024 est un bon compromis. Si ça rame encore, tentez 512.
-directionalLight.shadow.mapSize.width = 1024;
-directionalLight.shadow.mapSize.height = 1024;
+// Utilisation de la config dynamique
+directionalLight.shadow.mapSize.width = graphicsConfig.shadowMapSize;
+directionalLight.shadow.mapSize.height = graphicsConfig.shadowMapSize;
 
-directionalLight.shadow.camera.top = 20;
-directionalLight.shadow.camera.right = 20;
-directionalLight.shadow.camera.bottom = -20;
-directionalLight.shadow.camera.left = -20;
+directionalLight.shadow.camera.top = 15;
+directionalLight.shadow.camera.right = 15;
+directionalLight.shadow.camera.bottom = -15;
+directionalLight.shadow.camera.left = -15;
 directionalLight.shadow.camera.near = 0.1;
-directionalLight.shadow.camera.far = 80;
+directionalLight.shadow.camera.far = 40;
+directionalLight.shadow.bias = -0.005;
 
 directionalLight.position.set(3, 5, -5);
 directionalLight.castShadow = true;
@@ -276,22 +309,23 @@ controls.enableDamping = true;
 
 /**
  * ======================
- * RENDERER (OPTIMISÉ)
+ * RENDERER (DYNAMIQUE)
  * ======================
  */
 const renderer = new THREE.WebGLRenderer({
   canvas,
-  antialias: false, // OPTIMISATION : Désactiver l'antialiasing sur mobile
-  powerPreference: "high-performance", // Demande le GPU puissant
+  // On active/désactive l'antialias selon le device
+  antialias: graphicsConfig.antialias,
+  powerPreference: "high-performance",
 });
+
 renderer.setSize(sizes.width, sizes.height);
 
-// OPTIMISATION : Limiter le PixelRatio à 2 maximum (certains téléphones sont à 3 ou 4)
-// Sur un vieux téléphone, on pourrait même descendre à 1.5
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+// On applique le ratio calculé plus haut
+renderer.setPixelRatio(graphicsConfig.pixelRatio);
 
 renderer.shadowMap.enabled = true;
-// renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Optionnel : Ombres plus douces mais un peu plus coûteuses
+renderer.shadowMap.type = graphicsConfig.shadowType;
 
 /**
  * ======================
@@ -303,27 +337,37 @@ window.addEventListener("resize", () => {
   sizes.height = window.innerHeight;
   camera.aspect = sizes.width / sizes.height;
   camera.updateProjectionMatrix();
+
   renderer.setSize(sizes.width, sizes.height);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  // On garde la logique du ratio dynamique
+  renderer.setPixelRatio(graphicsConfig.pixelRatio);
 });
 
 /**
  * ======================
- * ANIMATE
+ * ANIMATE (OPTIMISÉ - ZÉRO GC)
  * ======================
  */
 const timer = new Timer();
 let canJump = false;
 let lastJumpTime = 0;
 const jumpCooldown = 0.5;
-
 let score = 0;
 const h1 = document.querySelector("#score");
 const h2 = document.querySelector("#curent-position");
 
+// --- VARIABLES RÉUTILISABLES (Pour éviter le Garbage Collection) ---
+const _forward = new THREE.Vector3();
+const _right = new THREE.Vector3();
+const _moveDirection = new THREE.Vector3();
+const _camDirection = new THREE.Vector3();
+// -------------------------------------------------------------------
+
 const tick = () => {
   timer.update();
-  // ... (votre logique de mouvement reste identique) ...
+  const elapsedTime = timer.getElapsed();
+
+  // --- 1. Mouvement ---
   const speed = 5;
   let inputForward = 0,
     inputRight = 0;
@@ -335,23 +379,25 @@ const tick = () => {
   let moveX = 0,
     moveZ = 0;
   if (inputForward !== 0 || inputRight !== 0) {
-    const forward = new THREE.Vector3();
-    camera.getWorldDirection(forward);
-    forward.y = 0;
-    forward.normalize();
-    const right = new THREE.Vector3();
-    right.crossVectors(forward, camera.up);
-    const moveDirection = new THREE.Vector3();
-    moveDirection.addScaledVector(forward, inputForward);
-    moveDirection.addScaledVector(right, inputRight);
-    moveDirection.normalize();
-    moveX = moveDirection.x * speed;
-    moveZ = moveDirection.z * speed;
+    // Réutilisation des vecteurs globaux
+    camera.getWorldDirection(_forward);
+    _forward.y = 0;
+    _forward.normalize();
+
+    _right.crossVectors(_forward, camera.up);
+
+    _moveDirection.set(0, 0, 0); // Reset
+    _moveDirection.addScaledVector(_forward, inputForward);
+    _moveDirection.addScaledVector(_right, inputRight);
+    _moveDirection.normalize();
+
+    moveX = _moveDirection.x * speed;
+    moveZ = _moveDirection.z * speed;
   }
   const currentLinVel = playerBody.linvel();
   playerBody.setLinvel({ x: moveX, y: currentLinVel.y, z: moveZ }, true);
 
-  // ... (votre logique de saut reste identique) ...
+  // --- 2. Logique de Saut ---
   const currentPos = playerBody.translation();
   const offsets = [
     { x: 0, z: 0 },
@@ -361,6 +407,9 @@ const tick = () => {
     { x: -0.49, z: -0.49 },
   ];
   let isGrounded = false;
+
+  // Note : On crée toujours des Rays ici, c'est difficile à éviter avec Rapier JS sans pool complexe,
+  // mais c'est moins grave que les Vector3.
   for (const offset of offsets) {
     const rayOrigin = {
       x: currentPos.x + offset.x,
@@ -383,7 +432,6 @@ const tick = () => {
     }
   }
   if (isGrounded && !keyboard.jump) canJump = true;
-  const elapsedTime = timer.getElapsed();
   if (keyboard.jump && canJump && isGrounded) {
     if (elapsedTime - lastJumpTime > jumpCooldown) {
       playerBody.applyImpulse({ x: 0, y: 15, z: 0 }, true);
@@ -402,8 +450,6 @@ const tick = () => {
       oldestPlatform.mesh.position.y < playerPosition.y - 50
     ) {
       scene.remove(oldestPlatform.mesh);
-      // Pas besoin de dispose Geometry/Material ici car ils sont PARTAGÉS (const) !
-      // On ne supprime que le body physique.
       world.removeRigidBody(oldestPlatform.body);
       platforms.shift();
     }
@@ -435,21 +481,23 @@ const tick = () => {
   const pos = playerBody.translation();
   if (playerMesh) {
     playerMesh.position.set(pos.x, pos.y - 0.5, pos.z);
-    const camDirection = new THREE.Vector3();
-    camera.getWorldDirection(camDirection);
+
+    // Réutilisation vecteur camera
+    camera.getWorldDirection(_camDirection);
     playerMesh.rotation.y =
-      Math.atan2(camDirection.x, camDirection.z) + -Math.PI * 0.5;
+      Math.atan2(_camDirection.x, _camDirection.z) + -Math.PI * 0.5;
+
     directionalLight.position.set(pos.x + 5, pos.y + 10, pos.z + 5);
     directionalLight.target.position.copy(playerMesh.position);
     directionalLight.target.updateMatrixWorld();
   }
 
-  // UI
+  // UI : Mise à jour moins fréquente (optionnel, mais bon pour le DOM)
   if (score < Math.round(pos.y)) {
     score = Math.round(pos.y);
     if (h1) h1.textContent = `Score: ${score}`;
   }
-  if (h2) h2.textContent = `Current Position: ${Math.round(pos.y)}`;
+  if (h2) h2.textContent = `Pos: ${Math.round(pos.y)}`;
 
   controls.update();
   renderer.render(scene, camera);
