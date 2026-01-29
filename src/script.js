@@ -26,7 +26,6 @@ scene.background = new THREE.Color("#87ceeb");
  * ======================
  */
 const gltfLoader = new GLTFLoader();
-
 let playerMesh = null;
 
 gltfLoader.load("./models/doodle_jump/scene.gltf", (gltf) => {
@@ -40,7 +39,6 @@ gltfLoader.load("./models/doodle_jump/scene.gltf", (gltf) => {
       child.receiveShadow = true;
     }
   });
-
   scene.add(playerMesh);
 });
 
@@ -53,24 +51,22 @@ const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
 
 /**
  * ======================
- * FLOOR (Physics)
+ * OPTIMISATION : GÉOMÉTRIE & MATÉRIEL PARTAGÉS
  * ======================
+ * On crée la forme et la couleur UNE SEULE FOIS ici.
+ * On les réutilisera pour toutes les plateformes.
  */
+const platformGeometry = new THREE.BoxGeometry(2, 0.3, 2);
+const platformMaterial = new THREE.MeshStandardMaterial({ color: "#4caf50" });
+
 const floorBody = world.createRigidBody(
   RAPIER.RigidBodyDesc.fixed().setTranslation(0, 0, 0),
 );
-
 world.createCollider(RAPIER.ColliderDesc.cuboid(7.5, 0.1, 7.5), floorBody);
 
-/**
- * ======================
- * PLAYER (Physics)
- * ======================
- */
 const playerBody = world.createRigidBody(
   RAPIER.RigidBodyDesc.dynamic().setTranslation(0, 3, 0).lockRotations(),
 );
-
 world.createCollider(
   RAPIER.ColliderDesc.cuboid(0.5, 0.5, 0.5).setFriction(1).setRestitution(0),
   playerBody,
@@ -88,11 +84,9 @@ const createPlatform = (y) => {
   const x = (Math.random() - 0.5) * 10;
   const z = (Math.random() - 0.5) * 10;
 
-  // 1. Mesh
-  const mesh = new THREE.Mesh(
-    new THREE.BoxGeometry(2, 0.3, 2),
-    new THREE.MeshStandardMaterial({ color: "#4caf50" }),
-  );
+  // 1. Mesh : On utilise la géométrie partagée ! (Énorme gain de perf)
+  const mesh = new THREE.Mesh(platformGeometry, platformMaterial);
+
   mesh.position.set(x, y, z);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
@@ -104,13 +98,11 @@ const createPlatform = (y) => {
   );
   world.createCollider(RAPIER.ColliderDesc.cuboid(1, 0.15, 1), body);
 
-  // 3. Stockage
   platforms.push({ mesh, body });
-
   lastPlatformY = y;
 };
 
-// Initialisation des 10 premières plateformes
+// Initialisation
 for (let i = 0; i < 10; i++) {
   createPlatform(i * 2 + 2);
 }
@@ -130,7 +122,7 @@ scene.add(floor);
 
 /**
  * ======================
- * INPUT (Clavier)
+ * INPUT & MOBILE
  * ======================
  */
 const keyboard = {
@@ -141,6 +133,7 @@ const keyboard = {
   jump: false,
 };
 
+// ... (Gardez vos EventListeners Clavier ici) ...
 window.addEventListener("keydown", (e) => {
   if (e.code === "KeyW" || e.code === "ArrowUp") keyboard.up = true;
   if (e.code === "KeyS" || e.code === "ArrowDown") keyboard.down = true;
@@ -148,7 +141,6 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "KeyD" || e.code === "ArrowRight") keyboard.right = true;
   if (e.code === "Space") keyboard.jump = true;
 });
-
 window.addEventListener("keyup", (e) => {
   if (e.code === "KeyW" || e.code === "ArrowUp") keyboard.up = false;
   if (e.code === "KeyS" || e.code === "ArrowDown") keyboard.down = false;
@@ -157,29 +149,21 @@ window.addEventListener("keyup", (e) => {
   if (e.code === "Space") keyboard.jump = false;
 });
 
-/**
- * ======================
- * MOBILE CONTROLS (Tactile)
- * ======================
- */
+// ... (Gardez votre setupMobileControls ici) ...
 const setupMobileControls = () => {
   const jumpBtn = document.getElementById("jump-btn");
   const joystickZone = document.getElementById("joystick-zone");
   const joystickKnob = document.getElementById("joystick-knob");
-
-  // Sécurité si les éléments ne sont pas encore dans le DOM
   if (!jumpBtn || !joystickZone) return;
 
-  // 1. Bouton de saut
   jumpBtn.addEventListener(
     "touchstart",
     (e) => {
-      e.preventDefault(); // Empêche le zoom/scroll
+      e.preventDefault();
       keyboard.jump = true;
     },
     { passive: false },
   );
-
   jumpBtn.addEventListener(
     "touchend",
     (e) => {
@@ -189,41 +173,29 @@ const setupMobileControls = () => {
     { passive: false },
   );
 
-  // 2. Joystick Virtuel
-  let startX = 0;
-  let startY = 0;
-
-  // Au toucher
+  let startX = 0,
+    startY = 0;
   joystickZone.addEventListener(
     "touchstart",
     (e) => {
       e.preventDefault();
       const touch = e.touches[0];
       const rect = joystickZone.getBoundingClientRect();
-      // Centre du joystick
-      const centerX = rect.left + rect.width / 2;
-      const centerY = rect.top + rect.height / 2;
-
-      startX = centerX;
-      startY = centerY;
-
+      startX = rect.left + rect.width / 2;
+      startY = rect.top + rect.height / 2;
       updateJoystick(touch.clientX, touch.clientY);
     },
     { passive: false },
   );
 
-  // Déplacement du doigt
   joystickZone.addEventListener(
     "touchmove",
     (e) => {
       e.preventDefault();
-      const touch = e.touches[0];
-      updateJoystick(touch.clientX, touch.clientY);
+      updateJoystick(e.touches[0].clientX, e.touches[0].clientY);
     },
     { passive: false },
   );
-
-  // Relâchement
   joystickZone.addEventListener(
     "touchend",
     (e) => {
@@ -234,32 +206,22 @@ const setupMobileControls = () => {
   );
 
   function updateJoystick(clientX, clientY) {
-    // Calcul du vecteur depuis le centre
     let deltaX = clientX - startX;
     let deltaY = clientY - startY;
-
-    // Limiter le mouvement du knob au rayon du cercle (max 35px)
     const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
     const maxDist = 35;
-
     if (distance > maxDist) {
       const angle = Math.atan2(deltaY, deltaX);
       deltaX = Math.cos(angle) * maxDist;
       deltaY = Math.sin(angle) * maxDist;
     }
-
-    // Bouger visuellement le bouton
     joystickKnob.style.transform = `translate(calc(-50% + ${deltaX}px), calc(-50% + ${deltaY}px))`;
-
-    // Traduire en Input Clavier (Seuils de déclenchement)
     const threshold = 10;
-
     keyboard.right = deltaX > threshold;
     keyboard.left = deltaX < -threshold;
     keyboard.down = deltaY > threshold;
     keyboard.up = deltaY < -threshold;
   }
-
   function resetJoystick() {
     joystickKnob.style.transform = `translate(-50%, -50%)`;
     keyboard.up = false;
@@ -268,20 +230,21 @@ const setupMobileControls = () => {
     keyboard.right = false;
   }
 };
-
-// On lance la configuration (assurez-vous d'avoir ajouté le HTML avant !)
 setupMobileControls();
 
 /**
  * ======================
- * LIGHTS
+ * LIGHTS (OPTIMISÉ)
  * ======================
  */
 scene.add(new THREE.AmbientLight("#ffffff", 1.5));
 const directionalLight = new THREE.DirectionalLight("#ffffff", 3);
 
-directionalLight.shadow.mapSize.width = 2048;
-directionalLight.shadow.mapSize.height = 2048;
+// OPTIMISATION : Taille de la texture d'ombre réduite pour mobile
+// 1024 est un bon compromis. Si ça rame encore, tentez 512.
+directionalLight.shadow.mapSize.width = 1024;
+directionalLight.shadow.mapSize.height = 1024;
+
 directionalLight.shadow.camera.top = 20;
 directionalLight.shadow.camera.right = 20;
 directionalLight.shadow.camera.bottom = -20;
@@ -298,11 +261,7 @@ scene.add(directionalLight);
  * CAMERA
  * ======================
  */
-const sizes = {
-  width: window.innerWidth,
-  height: window.innerHeight,
-};
-
+const sizes = { width: window.innerWidth, height: window.innerHeight };
 const camera = new THREE.PerspectiveCamera(
   75,
   sizes.width / sizes.height,
@@ -317,13 +276,22 @@ controls.enableDamping = true;
 
 /**
  * ======================
- * RENDERER
+ * RENDERER (OPTIMISÉ)
  * ======================
  */
-const renderer = new THREE.WebGLRenderer({ canvas });
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: false, // OPTIMISATION : Désactiver l'antialiasing sur mobile
+  powerPreference: "high-performance", // Demande le GPU puissant
+});
 renderer.setSize(sizes.width, sizes.height);
+
+// OPTIMISATION : Limiter le PixelRatio à 2 maximum (certains téléphones sont à 3 ou 4)
+// Sur un vieux téléphone, on pourrait même descendre à 1.5
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
 renderer.shadowMap.enabled = true;
+// renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Optionnel : Ombres plus douces mais un peu plus coûteuses
 
 /**
  * ======================
@@ -333,10 +301,8 @@ renderer.shadowMap.enabled = true;
 window.addEventListener("resize", () => {
   sizes.width = window.innerWidth;
   sizes.height = window.innerHeight;
-
   camera.aspect = sizes.width / sizes.height;
   camera.updateProjectionMatrix();
-
   renderer.setSize(sizes.width, sizes.height);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 });
@@ -357,46 +323,36 @@ const h2 = document.querySelector("#curent-position");
 
 const tick = () => {
   timer.update();
-  const delta = timer.getDelta();
-  const elapsedTime = timer.getElapsed();
-
-  // --- 1. Mouvement ---
+  // ... (votre logique de mouvement reste identique) ...
   const speed = 5;
-  let inputForward = 0;
-  let inputRight = 0;
-
+  let inputForward = 0,
+    inputRight = 0;
   if (keyboard.up) inputForward += 1;
   if (keyboard.down) inputForward -= 1;
   if (keyboard.right) inputRight += 1;
   if (keyboard.left) inputRight -= 1;
 
-  let moveX = 0;
-  let moveZ = 0;
-
+  let moveX = 0,
+    moveZ = 0;
   if (inputForward !== 0 || inputRight !== 0) {
     const forward = new THREE.Vector3();
     camera.getWorldDirection(forward);
     forward.y = 0;
     forward.normalize();
-
     const right = new THREE.Vector3();
     right.crossVectors(forward, camera.up);
-
     const moveDirection = new THREE.Vector3();
     moveDirection.addScaledVector(forward, inputForward);
     moveDirection.addScaledVector(right, inputRight);
     moveDirection.normalize();
-
     moveX = moveDirection.x * speed;
     moveZ = moveDirection.z * speed;
   }
-
   const currentLinVel = playerBody.linvel();
   playerBody.setLinvel({ x: moveX, y: currentLinVel.y, z: moveZ }, true);
 
-  // --- 2. Logique de Saut ---
+  // ... (votre logique de saut reste identique) ...
   const currentPos = playerBody.translation();
-
   const offsets = [
     { x: 0, z: 0 },
     { x: 0.49, z: 0.49 },
@@ -404,9 +360,7 @@ const tick = () => {
     { x: 0.49, z: -0.49 },
     { x: -0.49, z: -0.49 },
   ];
-
   let isGrounded = false;
-
   for (const offset of offsets) {
     const rayOrigin = {
       x: currentPos.x + offset.x,
@@ -423,15 +377,13 @@ const tick = () => {
       undefined,
       playerBody,
     );
-
     if (hit !== null) {
       isGrounded = true;
       break;
     }
   }
-
   if (isGrounded && !keyboard.jump) canJump = true;
-
+  const elapsedTime = timer.getElapsed();
   if (keyboard.jump && canJump && isGrounded) {
     if (elapsedTime - lastJumpTime > jumpCooldown) {
       playerBody.applyImpulse({ x: 0, y: 15, z: 0 }, true);
@@ -440,13 +392,9 @@ const tick = () => {
     }
   }
 
-  // --- 3. GÉNÉRATION INFINIE ---
+  // Génération & Nettoyage
   const playerPosition = playerBody.translation();
-  if (playerPosition.y > lastPlatformY - 20) {
-    createPlatform(lastPlatformY + 2);
-  }
-
-  // --- 4. NETTOYAGE ---
+  if (playerPosition.y > lastPlatformY - 20) createPlatform(lastPlatformY + 2);
   if (platforms.length > 0) {
     const oldestPlatform = platforms[0];
     if (
@@ -454,8 +402,8 @@ const tick = () => {
       oldestPlatform.mesh.position.y < playerPosition.y - 50
     ) {
       scene.remove(oldestPlatform.mesh);
-      oldestPlatform.mesh.geometry.dispose();
-      oldestPlatform.mesh.material.dispose();
+      // Pas besoin de dispose Geometry/Material ici car ils sont PARTAGÉS (const) !
+      // On ne supprime que le body physique.
       world.removeRigidBody(oldestPlatform.body);
       platforms.shift();
     }
@@ -463,11 +411,10 @@ const tick = () => {
 
   world.step();
 
-  // --- 5. LOGIQUE DE "WRAPPING" (BORDS) ---
+  // Wrapping
   const mapLimit = 7.5;
   let currentTeleportPos = playerBody.translation();
   let teleportNeeded = false;
-
   if (currentTeleportPos.x > mapLimit) {
     currentTeleportPos.x = -mapLimit;
     teleportNeeded = true;
@@ -475,7 +422,6 @@ const tick = () => {
     currentTeleportPos.x = mapLimit;
     teleportNeeded = true;
   }
-
   if (currentTeleportPos.z > mapLimit) {
     currentTeleportPos.z = -mapLimit;
     teleportNeeded = true;
@@ -483,25 +429,17 @@ const tick = () => {
     currentTeleportPos.z = mapLimit;
     teleportNeeded = true;
   }
+  if (teleportNeeded) playerBody.setTranslation(currentTeleportPos, true);
 
-  if (teleportNeeded) {
-    playerBody.setTranslation(currentTeleportPos, true);
-  }
-
-  // --- 6. SYNCHRONISATION MODÈLE ---
+  // Sync Visuel
   const pos = playerBody.translation();
-
   if (playerMesh) {
     playerMesh.position.set(pos.x, pos.y - 0.5, pos.z);
-
     const camDirection = new THREE.Vector3();
     camera.getWorldDirection(camDirection);
-    const camAngle = Math.atan2(camDirection.x, camDirection.z);
-    playerMesh.rotation.y = camAngle + -Math.PI * 0.5;
-
-    directionalLight.position.x = pos.x + 5;
-    directionalLight.position.z = pos.z + 5;
-    directionalLight.position.y = pos.y + 10;
+    playerMesh.rotation.y =
+      Math.atan2(camDirection.x, camDirection.z) + -Math.PI * 0.5;
+    directionalLight.position.set(pos.x + 5, pos.y + 10, pos.z + 5);
     directionalLight.target.position.copy(playerMesh.position);
     directionalLight.target.updateMatrixWorld();
   }
