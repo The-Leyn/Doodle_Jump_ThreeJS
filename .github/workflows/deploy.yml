@@ -1,0 +1,64 @@
+name: Deploy to GitHub Pages
+
+on:
+  # Se déclenche quand on push sur la branche main
+  push:
+    branches: ["main"]
+
+  # Permet de lancer le déploiement manuellement depuis l'interface GitHub
+  workflow_dispatch:
+
+# Permissions nécessaires pour modifier les Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Une seule tâche de déploiement
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  # Tâche de construction (Build)
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # C'est ici qu'on indique où se trouve le dossier construit
+          # Comme votre config vite sort dans '../dist' depuis src, c'est 'dist' à la racine
+          path: "./dist"
+
+  # Tâche de déploiement (Deploy)
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
