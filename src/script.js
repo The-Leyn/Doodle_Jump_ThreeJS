@@ -19,6 +19,7 @@ const gui = new GUI();
 const canvas = document.querySelector("canvas.webgl");
 const scene = new THREE.Scene();
 scene.background = new THREE.Color("#87ceeb");
+
 /**
  * ======================
  * LOADERS & MODEL
@@ -31,12 +32,9 @@ let playerMesh = null;
 
 gltfLoader.load("/models/doodle_jump/scene.gltf", (gltf) => {
   playerMesh = gltf.scene;
-  // gltf.scene.rotation.y = Math.PI / 2;
-  playerMesh.rotation.y = Math.PI; // Le modèle est à l'envers, on le tourne de 180 degrés
-  // 1. Ajuster la taille
+  playerMesh.rotation.y = Math.PI; // Rotation 180°
   playerMesh.scale.set(0.4, 0.4, 0.4);
 
-  // 2. Activer les ombres
   playerMesh.traverse((child) => {
     if (child.isMesh) {
       child.castShadow = true;
@@ -63,6 +61,7 @@ const floorBody = world.createRigidBody(
   RAPIER.RigidBodyDesc.fixed().setTranslation(0, 0, 0),
 );
 
+// Sol de 15x15 (donc 7.5 de demi-largeur)
 world.createCollider(RAPIER.ColliderDesc.cuboid(7.5, 0.1, 7.5), floorBody);
 
 /**
@@ -181,9 +180,6 @@ directionalLight.position.set(3, 5, -5);
 directionalLight.castShadow = true;
 scene.add(directionalLight);
 
-// DirectionalLight helpers
-// const dlHelper = new THREE.CameraHelper(directionalLight.shadow.camera);
-// scene.add(dlHelper);
 /**
  * ======================
  * CAMERA
@@ -354,23 +350,48 @@ const tick = () => {
 
   world.step();
 
-  // --- 5. SYNCHRONISATION MODÈLE ET ORIENTATION ---
+  // ============================================
+  // --- 5. LOGIQUE DE "WRAPPING" (BORDS) ---
+  // ============================================
+  const mapLimit = 7.5; // Limite du monde (moitié du sol de 15)
+  let currentTeleportPos = playerBody.translation();
+  let teleportNeeded = false;
+
+  // Gestion Axe X (Gauche / Droite)
+  if (currentTeleportPos.x > mapLimit) {
+    currentTeleportPos.x = -mapLimit;
+    teleportNeeded = true;
+  } else if (currentTeleportPos.x < -mapLimit) {
+    currentTeleportPos.x = mapLimit;
+    teleportNeeded = true;
+  }
+
+  // Gestion Axe Z (Nord / Sud)
+  if (currentTeleportPos.z > mapLimit) {
+    currentTeleportPos.z = -mapLimit;
+    teleportNeeded = true;
+  } else if (currentTeleportPos.z < -mapLimit) {
+    currentTeleportPos.z = mapLimit;
+    teleportNeeded = true;
+  }
+
+  // Si on a dépassé un bord, on téléporte
+  if (teleportNeeded) {
+    playerBody.setTranslation(currentTeleportPos, true);
+  }
+
+  // ============================================
+
+  // --- 6. SYNCHRONISATION MODÈLE ET ORIENTATION ---
   const pos = playerBody.translation();
 
   if (playerMesh) {
     playerMesh.position.set(pos.x, pos.y - 0.5, pos.z);
 
-    // === NOUVEL AJOUT ICI ===
-    // On calcule la direction que regarde la caméra
     const camDirection = new THREE.Vector3();
     camera.getWorldDirection(camDirection);
-
-    // On calcule l'angle en radians (Math.atan2 calcule l'angle depuis X et Z)
     const camAngle = Math.atan2(camDirection.x, camDirection.z);
     playerMesh.rotation.y = camAngle + -Math.PI * 0.5;
-    // On applique cet angle au modèle
-    // playerMesh.rotation.y = camAngle;
-    // ========================
 
     // Lumière
     directionalLight.position.x = pos.x + 5;
